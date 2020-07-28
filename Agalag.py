@@ -1,9 +1,10 @@
-import sys, pygame, os, time
+import sys, pygame, os, time, random
 pygame.init()
 
 black = 0,0,0
+white = 250,250,250
 
-size = width, height = 500, 900
+size = width, height = 500, 600
 screen = pygame.display.set_mode(size)
 player_ship = pygame.image.load("player_ship.png")
 laser = pygame.image.load("laser.png")
@@ -15,9 +16,12 @@ class Player:
 		self.image = player_ship
 		self.pos = self.image.get_rect()
 		self.pos.midbottom = screen.get_rect().midbottom
+		self.pos.bottom -= 20
 		self.last_move = 0
 		self.last_shot = 0
 		self.projectiles = []
+		self.score = 0
+		self.playing = True
 	def move_right(self):
 		if self.pos.right < 500 and time.monotonic() - self.last_move > 0.001:
 			self.pos = self.pos.move(2,0)
@@ -47,18 +51,57 @@ class Enemy:
 		self.pos = self.pos.move(10,0)
 	def move_left(self):
 		self.pos = self.pos.move(-10,0)
+	def move_down(self):
+		self.pos = self.pos.move(0, 10)
 	def die(self):
 		self.wave.ships.remove(self)
 		del self
+	def is_touching_player(self):
+		if self.pos.colliderect(player.pos):
+			player.playing = not player.playing
+			return True
 
 class Wave:
 	def __init__(self):
 		self.ships = []
 		for x in range(6):
 			self.ships.append(Enemy((10 + (x * (enemy_ship.get_rect().width + 10)),2),self))
+		self.direction = True
+		self.last_move = 0
+		self.last_shot = 0
+		self.projectiles = []
 	def draw(self):
 		for ship in self.ships:
 			screen.blit(ship.image, ship.pos)
+	def check_screen_edge(self):
+		return self.ships[0].pos.left < 10 or self.ships[-1].pos.right > 490
+	def move(self):
+		if self.direction:
+			for ship in self.ships:
+				ship.move_right()
+				ship.is_touching_player()
+		else:
+			for ship in self.ships:
+				ship.move_left()
+				ship.is_touching_player()
+		if self.check_screen_edge():
+			self.direction = not self.direction
+			for ship in self.ships:
+				ship.move_down()
+	def shoot(self):
+		ship = self.ships[random.randrange(len(self.ships))]
+		new_shot = Laser(ship.pos.midbottom, 1, self)
+		new_shot.pos.bottom += 27
+		self.projectiles.append(new_shot)
+		self.last_shot = time.monotonic()
+	def ready_for_next_wave(self):
+		return self.ships[0].pos.top > 63
+	def is_empty(self):
+		return not self.ships
+	def move_projectiles(self):
+		if self.projectiles:
+			for laser in self.projectiles:
+				laser.move()
 
 class Laser:
 	def __init__(self, midbottom, direction, owner):
@@ -85,18 +128,25 @@ class Laser:
 	def check_hit(self):
 		if self.direction == 1:
 			#ADD GAMEOVER LOGIC HERE
-			return self.pos.colliderect(player)
+			if self.pos.colliderect(player.pos):
+				player.playing = not player.playing
+				return True
 		else:
 			for wave in waves:
 				for ship in wave.ships:
 					if self.pos.colliderect(ship.pos):
+						self.owner.score += 100
 						ship.die()
 						return 1
 
 player = Player()
 waves = [Wave()]
+score_text = pygame.font.Font('freesansbold.ttf', 20)
+score_surface = score_text.render("Score: " + str(player.score), True, white)
+score_rect = score_surface.get_rect()
+score_rect.midbottom = screen.get_rect().midbottom 
 
-while 1:
+while player.playing:
 	for event in pygame.event.get(): #Check for program closing
 		if event.type == pygame.QUIT:
 			sys.exit()
@@ -111,8 +161,31 @@ while 1:
 
 
 	screen.fill(black) #redraw screen
+
 	player.move_projectiles()
-	for wave in waves:
-		wave.draw()
+
+	if waves:
+		for wave in waves: #move and draw enemy waves
+			if wave.is_empty():
+				waves.remove(wave)
+				del wave
+			else:
+				wave.move_projectiles()
+				if time.monotonic() - wave.last_move > 0.1:
+					wave.move()
+					wave.last_move = time.monotonic()
+				wave.draw()
+	else:
+		waves.append(Wave())
+	if waves:
+		if waves[-1].ready_for_next_wave():
+			waves.append(Wave())
+		if time.monotonic() - waves[0].last_shot > 1:
+			waves[0].shoot()
+
+
+	score_surface = score_text.render("Score: " + str(player.score), True, white)
+	screen.blit(score_surface, score_rect)
 	screen.blit(player.image, player.pos)
 	pygame.display.flip()
+time.sleep()
