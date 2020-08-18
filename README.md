@@ -1,2 +1,2 @@
 # Agalag
-AI learns galaga (Work in Progress)
+Playing around with pygame
